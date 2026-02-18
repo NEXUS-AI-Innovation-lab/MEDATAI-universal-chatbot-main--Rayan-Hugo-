@@ -1,0 +1,53 @@
+services:
+  # RAG Server - Main Application
+  btp-rag-server-dev:
+    image: btp-rag-server-dev
+    container_name: btp-rag-server-dev
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount current directory for hot-reloading
+      - .:/app
+      # Mount output directory for generated courses
+      - ./course_outputs:/app/course_outputs
+    env_file:
+      - .env
+    environment:
+      # Override environment variables if needed
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - btp-rag-elasticsearch
+      - btp-rag-qdrant
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+  # Elasticsearch - BM25 Search
+  btp-rag-elasticsearch:
+    image: btp-rag-elasticsearch
+    container_name: btp-rag-elasticsearch-dev
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+  # Qdrant - Vector Database
+  btp-rag-qdrant:
+    image: btp-rag-qdrant:latest
+    container_name: btp-rag-qdrant-dev
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+networks:
+  rag-network:
+    driver: bridge
+
+

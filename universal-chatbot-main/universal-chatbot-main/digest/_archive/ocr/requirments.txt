@@ -1,0 +1,6 @@
+mistralai
+datauri
+tqdm
+bs4
+IPython
+markdownify

@@ -1,0 +1,10 @@
+{
+  "btp": {
+    "qdrant_collection": "btp_rag_docs_v2",
+    "es_index": "btp_bm25_v2_index"
+  },
+  "medatai": {
+    "qdrant_collection": "medatai_rag_docs",
+    "es_index": "medatai_bm25_index"
+  }
+}

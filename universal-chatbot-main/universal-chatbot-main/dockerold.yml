@@ -1,0 +1,101 @@
+
+services:
+  # LibreChat Frontend & Backend
+  librechat:
+    image: ghcr.io/danny-avila/librechat:latest
+    container_name: librechat
+    ports:
+      - "3080:3080"  # LibreChat web interface
+    environment:
+      # Core settings
+      - HOST=0.0.0.0
+      - PORT=3080
+
+      # MongoDB connection
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+
+      # Meili Search (optional but recommended)
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_NO_ANALYTICS=true
+
+      # Custom API endpoint (your RAG server)
+      - CUSTOM_API_KEY=dev-token-123
+      - RAG_API_URL=http://host.docker.internal:8080/api/chat
+
+      # Security
+      - JWT_SECRET=your-secret-key-change-in-production
+      - JWT_REFRESH_SECRET=your-refresh-secret-change-in-production
+
+      # Session
+      - SESSION_EXPIRY=1000 * 60 * 15
+      - REFRESH_TOKEN_EXPIRY=1000 * 60 * 60 * 24 * 7
+
+      # App settings
+      - APP_TITLE=LibreChat RAG
+      - ALLOW_REGISTRATION=true
+      - ALLOW_SOCIAL_LOGIN=false
+      - ALLOW_SOCIAL_REGISTRATION=false
+
+      # Debug (optional)
+      - DEBUG_CONSOLE=false
+
+      # Disable default endpoints - only show custom RAG endpoint
+      - ENDPOINTS=custom
+
+    volumes:
+      # Mount config file
+      - ./librechat.yaml:/app/librechat.yaml:ro
+      - ./auth.json:/app/api/data/auth.json:ro
+
+      # Persist user data
+      - librechat-data:/app/client/public/images
+      - librechat-logs:/app/api/logs
+
+    depends_on:
+      - mongodb
+      - meilisearch
+
+    restart: unless-stopped
+
+    # Allow connection to host machine (for RAG server)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # MongoDB for LibreChat data
+  mongodb:
+    image: mongo:7.0
+    container_name: librechat-mongodb
+    ports:
+      - "27018:27017"  # Use 27018 to avoid conflict with existing MongoDB
+    environment:
+      - MONGO_INITDB_DATABASE=LibreChat
+    volumes:
+      - mongodb-data:/data/db
+    restart: unless-stopped
+
+  # MeiliSearch for full-text search
+  meilisearch:
+    image: getmeili/meilisearch:v1.5
+    container_name: librechat-meilisearch
+    ports:
+      - "7701:7700"  # Use 7701 to avoid conflict
+    environment:
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_ENV=production
+    volumes:
+      - meilisearch-data:/meili_data
+    restart: unless-stopped
+
+volumes:
+  mongodb-data:
+    driver: local
+  meilisearch-data:
+    driver: local
+  librechat-data:
+    driver: local
+  librechat-logs:
+    driver: local
+
+networks:
+  default:
+    name: librechat-network

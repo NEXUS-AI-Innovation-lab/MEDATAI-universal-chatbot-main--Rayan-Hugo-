@@ -1,0 +1,264 @@
+
+services:
+  # =================================================================
+  # FRONTEND: LibreChat - User-facing application
+  # =================================================================
+  librechat:
+    image: ghcr.io/danny-avila/librechat:latest
+    container_name: universal-rag-librechat
+    ports:
+      - "3080:3080"  
+    environment:
+      # Core settings
+      - HOST=0.0.0.0
+      - PORT=3080
+
+      # Database connection
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+
+      # Search engine
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_NO_ANALYTICS=true
+
+      # Security - JWT tokens
+      - JWT_SECRET=kFvcNo5aKuALPwBJCzYxwCPr3/TuWbyITcSvptNh4H8BVuBFing5ue1zmTYPd+AzEUIEo8/hiJFxrFfPzHwo1Q==
+      - JWT_REFRESH_SECRET=M7HAveyreKYWZfWF/fKhqYlsV/+eCpIaoDNhvUVLbYFiyP2cLndQQQddnzFLB+XL6yMzLFZ7E18XP2IjLKScEw==
+      - CREDS_KEY=e78b0301708bd0e3242d47e11e9e195b580cdaf1204e51e0991b206d4bfaab3e
+      - CREDS_IV=98ee2dccfa0d7f939eb21d298e174682
+
+      # Session configuration
+      - SESSION_EXPIRY=900000
+      - REFRESH_TOKEN_EXPIRY=604800000
+
+      # Custom API endpoint (RAG server)
+      - CUSTOM_API_KEY=dev-token-123
+
+      # Application settings
+      - APP_TITLE=universal RAG
+      - ALLOW_REGISTRATION=false
+      - ALLOW_EMAIL_LOGIN=true
+      - ALLOW_SOCIAL_LOGIN=false
+      - ALLOW_SOCIAL_REGISTRATION=false
+
+      # Endpoints configuration
+      - ENDPOINTS=custom
+
+      # Debug settings
+      - DEBUG_CONSOLE=false
+      - DEBUG_LOGGING=false
+    volumes:
+      # Configuration files
+      - ./front/librechat.yaml:/app/librechat.yaml:ro
+
+      # Persistent data
+      - ./storage/librechat/images:/app/client/public/images
+      - ./storage/librechat/logs:/app/api/logs
+    depends_on:
+      - mongodb
+      - meilisearch
+      - universal-rag-server
+    networks:
+      - universal-rag-network
+    restart: unless-stopped
+
+  # =================================================================
+  # DATABASE: MongoDB - LibreChat user data and conversations
+  # =================================================================
+  mongodb:
+    image: mongo:7.0
+    container_name: universal-rag-mongodb
+    environment:
+      - MONGO_INITDB_DATABASE=LibreChat
+    volumes:
+      - ./storage/mongodb:/data/db
+    networks:
+      - universal-rag-network
+    restart: unless-stopped
+
+  # =================================================================
+  # SEARCH: MeiliSearch - Full-text search for LibreChat
+  # =================================================================
+  meilisearch:
+    image: getmeili/meilisearch:v1.5
+    container_name: universal-rag-meilisearch
+    environment:
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_ENV=production
+      - MEILI_MASTER_KEY=OLt4zn5una7taKYXC9HpjjCLKDYZ0x6iF3hyCycqfog
+    volumes:
+      - ./storage/meilisearch:/meili_data
+    networks:
+      - universal-rag-network
+    restart: unless-stopped
+
+  # =================================================================
+  # BACKEND: RAG Server - Main application logic
+  # =================================================================
+  universal-rag-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    image: universal-rag-server:dev
+    container_name: universal-rag-server
+    environment:
+
+      # Python settings
+      - PYTHONUNBUFFERED=1
+
+      # Server configuration
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+
+      # Elasticsearch connection
+      - ELASTICSEARCH_URL=http://universal-rag-elasticsearch:9200
+      - ELASTICSEARCH_INDEX=universal_bm25_v2_index
+
+      # Qdrant vector database connection
+      - QDRANT_URL=http://universal-rag-qdrant:6333
+      - QDRANT_COLLECTION=universal_rag_docs_v2
+
+      # Ollama LLM connection
+      - OLLAMA_BASE_URL=http://universal-rag-ollama:11434
+
+      # File server connection
+      - FILESERVER_URL=http://universal-rag-fileserver:8000
+
+      # Authentication tokens (format: token:user_id:name)
+      - AUTH_TOKENS=dev-token-123:user_1:Developer
+
+      # Fileserver internal URL (for server-to-fileserver communication)
+      - FILESERVER_BASE=http://universal-rag-fileserver:8000
+      # Fileserver public URL (for browser downloads)
+      - FILESERVER_PUBLIC_URL=http://localhost:7700
+    volumes:
+      - ./server:/app  # Dev mount for live code changes
+      # Course generation outputs
+      - ./storage/course_outputs:/app/course_outputs
+
+      # Configuration files
+      - ./server/config.ini:/app/config.ini:ro
+    depends_on:
+      - universal-rag-elasticsearch
+      - universal-rag-qdrant
+      - universal-rag-ollama
+      - universal-rag-fileserver
+    networks:
+      - universal-rag-network
+    restart: unless-stopped
+
+  # =================================================================
+  # SEARCH ENGINE: Elasticsearch - BM25 full-text search
+  # =================================================================
+  universal-rag-elasticsearch:
+    build:
+      context: ./elasticsearch
+      dockerfile: Dockerfile
+    image: universal-rag-elasticsearch:latest
+    container_name: universal-rag-elasticsearch
+    ports:
+      - "9200:9200"
+    environment:
+      # JVM heap settings
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+
+      # Security disabled for internal network
+      - xpack.security.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - xpack.security.http.ssl.enabled=false
+
+      # Single-node cluster
+      - discovery.type=single-node
+
+      # Snapshot repository path
+      - path.repo=/usr/share/elasticsearch/backups
+
+
+      # Backups (pre-loaded data)
+      - ./elasticsearch/backups:/usr/share/elasticsearch/backups:ro
+    networks:
+      - universal-rag-network
+    restart: unless-stopped
+
+  # =================================================================
+  # VECTOR DATABASE: Qdrant - Vector similarity search
+  # =================================================================
+  universal-rag-qdrant:
+    build:
+      context: ./qdrant
+      dockerfile: Dockerfile
+    image: universal-rag-qdrant:latest
+    container_name: universal-rag-qdrant
+    ports:
+      - "6333:6333"
+
+    networks:
+      - universal-rag-network
+    restart: unless-stopped
+
+  # =================================================================
+  # LLM ENGINE: Ollama - Local language models
+  # =================================================================
+  universal-rag-ollama:
+    build:
+      context: ./ollama
+      dockerfile: Dockerfile
+    image: universal-rag-ollama:latest
+    container_name: universal-rag-ollama
+    environment:
+      # Disable sandbox mode for compatibility
+      - OLLAMA_NO_SANDBOX=1
+
+    networks:
+      - universal-rag-network
+    restart: unless-stopped
+    # GPU support (uncomment if you have NVIDIA GPU)
+    deploy:
+       resources:
+         reservations:
+           devices:
+             - driver: nvidia
+               count: 1
+               capabilities: [gpu]
+
+  # =================================================================
+  # FILE SERVER: Static file server for RAG resources
+  # =================================================================
+  universal-rag-fileserver:
+    build:
+      context: ./fileserver
+      dockerfile: Dockerfile
+    image: universal-rag-fileserver:latest
+    container_name: universal-rag-fileserver
+    ports:
+      - "7700:8000"  # Exposed on localhost:7700
+    volumes:
+      # Mount local resources directory (read-only for existing PDFs)
+      - ./storage/raw_data:/app/files:ro
+      # Separate uploads directory for generated QCM files (writable)
+      - ./storage/qcm_uploads:/app/uploads
+    environment:
+      - FILES_DIR=/app/files
+      - UPLOADS_DIR=/app/uploads
+    networks:
+      - universal-rag-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# =================================================================
+# NETWORKS
+# =================================================================
+networks:
+  universal-rag-network:
+    name: universal-rag-network
+    driver: bridge
+
+# =================================================================
+# VOLUMES (all mounted to host for persistence)
+# =================================================================
+# All volumes are bind-mounted to ./storage/ directory
+# No named volumes used - everything is stored on host filesystem
